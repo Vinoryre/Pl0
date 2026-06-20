@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <unordered_set>
 #include "Token.h"
 
 struct SyntaxError {
@@ -16,6 +17,7 @@ private:
     int pos;
 
     std::vector<SyntaxError> errors;
+    std::unordered_set<std::string> procedures;
 
 public:
     Parser(const std::vector<Token>& input);
@@ -46,6 +48,7 @@ private:
     bool isStatementBegin(TokenType t);
 
     void reportError(const std::string& msg);
+    void reportErrorAt(int line, const std::string& msg);
     void synchronize();
 };
 
