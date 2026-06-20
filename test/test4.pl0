@@ -1,0 +1,17 @@
+const a=1;
+var b,c,d;
+
+begin
+a:=b+c*d/2-10;
+
+if a<=100 then
+begin
+read(b);
+while b#0 do
+begin
+call func1;
+write(b@c);
+end;
+end;
+
+end.

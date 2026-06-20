@@ -1,0 +1,16 @@
+const x1 = 000123456789a;
+var a1, b2;
+
+/* comment start
+   still comment */
+procedure proc1234567;
+if x1<=10 then
+begin
+    a1 := x1 + b2;
+end;
+
+while a1 # 0 do
+begin
+    call proc1234567;
+    write(2 * a1);
+end.
