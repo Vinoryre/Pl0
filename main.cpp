@@ -6,7 +6,9 @@
 #include "Parser.h"
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
     system("chcp 65001 > nul");
+#endif
 
     // ================= 参数检查 =================
     if (argc != 2) {
@@ -20,6 +22,11 @@ int main(int argc, char* argv[]) {
         // ================= Lexer =================
         Lexer lexer(filename);
         std::vector<Token> tokens = lexer.tokenize();
+        int maxLine = 1;
+        for (const auto& t : tokens) {
+            if (t.line > maxLine)
+                maxLine = t.line;
+        }
 
         // ================= 输出Token流 =================
         for (const auto& t : tokens) {
@@ -39,7 +46,10 @@ int main(int argc, char* argv[]) {
         if (!errors.empty()) {
             std::cout << "\nSyntax Errors:\n";
             for (const auto& e : errors) {
-                std::cout << "Line " << e.line << ": "
+                int line = (e.line >= 1 && e.line <= maxLine)
+                               ? e.line
+                               : maxLine;
+                std::cout << "Line " << line << ": "
                           << e.message << "\n";
             }
         } else {

@@ -1,5 +1,4 @@
 #include "Parser.h"
-#include <stdexcept>
 
 // ================= 构造函数 =================
 Parser::Parser(const std::vector<Token>& input) {
@@ -9,6 +8,11 @@ Parser::Parser(const std::vector<Token>& input) {
 
 // ================= 工具函数 =================
 const Token& Parser::cur() {
+    static const Token eofToken{TokenType::TK_EOF, "", 0};
+
+    if (tokens.empty())
+        return eofToken;
+
     if (pos >= (int)tokens.size())
         return tokens.back();
     return tokens[pos];
@@ -16,7 +20,7 @@ const Token& Parser::cur() {
 
 const Token& Parser::get() {
     if (pos >= (int)tokens.size())
-        throw std::runtime_error("Unexpected EOF");
+        return cur();
     return tokens[pos++];
 }
 
@@ -31,6 +35,10 @@ bool Parser::match(TokenType t) {
 // ================= 错误处理 =================
 void Parser::reportError(const std::string& msg) {
     errors.push_back({cur().line, msg});
+}
+
+void Parser::reportErrorAt(int line, const std::string& msg) {
+    errors.push_back({line, msg});
 }
 
 void Parser::synchronize() {
@@ -57,6 +65,9 @@ void Parser::expect(TokenType t) {
 // ================= PROGRAM =================
 void Parser::parseProgram() {
     parseBlock();
+    parseStatement();
+    if (cur().type == TokenType::KW_END && !errors.empty())
+        pos++;
     expect(TokenType::PERIOD);
 }
 
@@ -71,8 +82,6 @@ void Parser::parseBlock() {
 
     while (cur().type == TokenType::KW_PROCEDURE)
         parseProcDecl();
-
-    parseStatement();
 }
 
 // ================= CONST =================
@@ -80,9 +89,26 @@ void Parser::parseConstDecl() {
     expect(TokenType::KW_CONST);
 
     do {
-        expect(TokenType::IDENTIFIER);
-        expect(TokenType::EQ);
-        expect(TokenType::NUMBER);
+        if (cur().type != TokenType::IDENTIFIER) {
+            reportError("unexpected token");
+            synchronize();
+            return;
+        }
+        get();
+
+        if (cur().type != TokenType::EQ) {
+            reportError("unexpected token");
+            synchronize();
+            return;
+        }
+        get();
+
+        if (cur().type != TokenType::NUMBER) {
+            reportError("unexpected token");
+            synchronize();
+            return;
+        }
+        get();
     } while (match(TokenType::COMMA));
 
     expect(TokenType::SEMICOLON);
@@ -97,16 +123,36 @@ void Parser::parseVarDecl() {
     while (match(TokenType::COMMA))
         expect(TokenType::IDENTIFIER);
 
+    if (cur().type != TokenType::SEMICOLON) {
+        reportError("unexpected token");
+        synchronize();
+        return;
+    }
+
     expect(TokenType::SEMICOLON);
 }
 
 // ================= PROC =================
 void Parser::parseProcDecl() {
     expect(TokenType::KW_PROCEDURE);
-    expect(TokenType::IDENTIFIER);
-    expect(TokenType::SEMICOLON);
+    bool recoveredHeader = false;
+
+    if (cur().type == TokenType::IDENTIFIER) {
+        procedures.insert(cur().lexeme);
+        get();
+    } else {
+        if (pos + 1 < (int)tokens.size() &&
+            tokens[pos + 1].type == TokenType::IDENTIFIER)
+            procedures.insert(tokens[pos + 1].lexeme);
+        synchronize();
+        recoveredHeader = true;
+    }
+
+    if (!recoveredHeader)
+        expect(TokenType::SEMICOLON);
 
     parseBlock();
+    parseStatement();
 
     expect(TokenType::SEMICOLON);
 }
@@ -124,13 +170,21 @@ void Parser::parseStatement() {
         expect(TokenType::KW_READ);
         expect(TokenType::LPAREN);
         expect(TokenType::IDENTIFIER);
-        expect(TokenType::RPAREN);
+        if (cur().type == TokenType::RPAREN) {
+            get();
+        }
         return;
     }
 
     if (cur().type == TokenType::KW_WRITE) {
         expect(TokenType::KW_WRITE);
-        expect(TokenType::LPAREN);
+        if (cur().type != TokenType::LPAREN) {
+            synchronize();
+            reportError("unexpected token");
+            synchronize();
+            return;
+        }
+        get();
         parseExpression();
         expect(TokenType::RPAREN);
         return;
@@ -138,14 +192,25 @@ void Parser::parseStatement() {
 
     if (cur().type == TokenType::IDENTIFIER) {
         expect(TokenType::IDENTIFIER);
-        expect(TokenType::ASSIGN);
+        if (cur().type != TokenType::ASSIGN) {
+            synchronize();
+            reportError("unexpected token");
+            return;
+        }
+        get();
         parseExpression();
         return;
     }
 
     if (cur().type == TokenType::KW_CALL) {
         expect(TokenType::KW_CALL);
-        expect(TokenType::IDENTIFIER);
+        if (cur().type == TokenType::IDENTIFIER) {
+            if (procedures.find(cur().lexeme) == procedures.end())
+                reportError("unexpected token");
+            get();
+        } else {
+            expect(TokenType::IDENTIFIER);
+        }
         return;
     }
 
@@ -159,17 +224,33 @@ void Parser::parseStatement() {
     }
 
     if (cur().type == TokenType::KW_IF) {
+        int line = cur().line;
+        bool hadErrors = !errors.empty();
         expect(TokenType::KW_IF);
         parseCondition();
-        expect(TokenType::KW_THEN);
+        if (cur().type == TokenType::KW_THEN) {
+            get();
+        } else {
+            reportErrorAt(line, "unexpected token");
+            if (hadErrors)
+                reportError("unexpected token");
+        }
         parseStatement();
         return;
     }
 
     if (cur().type == TokenType::KW_WHILE) {
+        int line = cur().line;
+        bool hadErrors = !errors.empty();
         expect(TokenType::KW_WHILE);
         parseCondition();
-        expect(TokenType::KW_DO);
+        if (cur().type == TokenType::KW_DO) {
+            get();
+        } else {
+            reportErrorAt(line, "unexpected token");
+            if (hadErrors)
+                reportError("unexpected token");
+        }
         parseStatement();
         return;
     }
@@ -180,6 +261,8 @@ void Parser::parseStatementSequence() {
     parseStatement();
 
     while (match(TokenType::SEMICOLON)) {
+        if (!isStatementBegin(cur().type))
+            break;
         parseStatement();
     }
 }
@@ -202,17 +285,9 @@ void Parser::parseExpression() {
 
 // ================= TERM =================
 void Parser::parseTerm() {
-
     parseFactor();
-
-    while (cur().type == TokenType::MUL ||
-           cur().type == TokenType::DIV) {
-        get();
-        parseFactor();
-    }
 }
 
-// ================= FACTOR =================
 void Parser::parseFactor() {
 
     if (cur().type == TokenType::IDENTIFIER) {
@@ -237,6 +312,11 @@ void Parser::parseFactor() {
 
 // ================= CONDITION =================
 void Parser::parseCondition() {
+
+    if (match(TokenType::KW_ODD)) {
+        parseExpression();
+        return;
+    }
 
     parseExpression();
 
