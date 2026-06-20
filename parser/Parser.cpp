@@ -1,5 +1,4 @@
 #include "Parser.h"
-#include <stdexcept>
 
 // ================= 构造函数 =================
 Parser::Parser(const std::vector<Token>& input) {
@@ -9,6 +8,11 @@ Parser::Parser(const std::vector<Token>& input) {
 
 // ================= 工具函数 =================
 const Token& Parser::cur() {
+    static const Token eofToken{TokenType::TK_EOF, "", 0};
+
+    if (tokens.empty())
+        return eofToken;
+
     if (pos >= (int)tokens.size())
         return tokens.back();
     return tokens[pos];
@@ -16,7 +20,7 @@ const Token& Parser::cur() {
 
 const Token& Parser::get() {
     if (pos >= (int)tokens.size())
-        throw std::runtime_error("Unexpected EOF");
+        return cur();
     return tokens[pos++];
 }
 
@@ -57,6 +61,7 @@ void Parser::expect(TokenType t) {
 // ================= PROGRAM =================
 void Parser::parseProgram() {
     parseBlock();
+    parseStatement();
     expect(TokenType::PERIOD);
 }
 
@@ -71,8 +76,6 @@ void Parser::parseBlock() {
 
     while (cur().type == TokenType::KW_PROCEDURE)
         parseProcDecl();
-
-    parseStatement();
 }
 
 // ================= CONST =================
@@ -107,6 +110,7 @@ void Parser::parseProcDecl() {
     expect(TokenType::SEMICOLON);
 
     parseBlock();
+    parseStatement();
 
     expect(TokenType::SEMICOLON);
 }
@@ -180,6 +184,8 @@ void Parser::parseStatementSequence() {
     parseStatement();
 
     while (match(TokenType::SEMICOLON)) {
+        if (!isStatementBegin(cur().type))
+            break;
         parseStatement();
     }
 }
@@ -237,6 +243,11 @@ void Parser::parseFactor() {
 
 // ================= CONDITION =================
 void Parser::parseCondition() {
+
+    if (match(TokenType::KW_ODD)) {
+        parseExpression();
+        return;
+    }
 
     parseExpression();
 
